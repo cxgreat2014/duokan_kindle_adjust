@@ -1,0 +1,6 @@
+export PATH=/DuoKan:/usr/local/bin:/bin:/usr/bin:/usr/sbin:/sbin:/usr/local/python/bin
+export LD_LIBRARY_PATH=/DuoKan/lib:/mnt/us/DK_System/xKindle/web_browser/lib:/lib:/usr/lib
+export QT_PLUGIN_PATH=/DuoKan/plugins
+export QWS_DISPLAY=Transformed:Rot0:DuokanScreen
+#export QT_QWS_FONTDIR=/mnt/us/DK_System/xKindle/res/userfonts
+export QT_QWS_FONTDIR=/DuoKan/res/sysfonts

@@ -1,0 +1,265 @@
+#!/bin/sh                                                                       
+
+#  update 20120920
+
+_FUNCTIONS=/etc/rc.d/functions                                                  
+[ -f ${_FUNCTIONS} ] && . ${_FUNCTIONS}            
+
+echo "Show menu" 
+
+DUOKAN_SYS_PATH="/DuoKan"
+RUN_TAG="/var/duokantag"
+USER_PATH="/mnt/us/DK_System"
+DUOKAN_CONFIG_INI="$USER_PATH/xKindle/config.ini"
+
+DUOKAN_TAG_OLD="ebook"
+DUOKAN_TAG="duokan"
+KINDLE_TAG="kindle"
+
+lnk_scripts()
+{
+		mntroot rw
+		ln -s /etc/init.d/DK_update /etc/rc5.d/S79DK_update
+		ln -s /etc/init.d/DK_switch /etc/rc5.d/S95DK_switch
+		ln -s /etc/init.d/framework /etc/rc5.d/S95framework
+		ln -s /etc/init.d/DK_run 	/etc/rc5.d/S96DK_run 
+		mntroot ro
+}
+
+if [ ! -e /etc/rc5.d/S95framework ] ; then
+		lnk_scripts
+fi
+
+if [ ! -e /mnt/us/DK_System ] ; then
+		exit 0
+fi
+
+
+if [ -f /mnt/us/DUOKAN_NO ] ; then
+		exit
+fi
+
+ShowSwitchPic()
+{
+		cat /mnt/us/DK_System/bin/dkswitch.bin > /dev/fb0
+		echo 2 >/proc/eink_fb/update_display
+		sleep 3                
+		display_logo_screen
+		return 0; 
+}
+
+SwitchToEbook()
+{
+		echo "Run DK program"
+		echo  $DUOKAN_TAG_OLD > $RUN_TAG
+}
+
+SwitchToKindle()
+{
+		echo "Run Kindle program" 
+		echo  $KINDLE_TAG > $RUN_TAG
+		
+		/etc/init.d/wifid start
+		/etc/init.d/framework stop
+		/etc/init.d/framework start &	
+}
+
+SwitchToDuokan()
+{
+		echo "Run DuoKan program"  
+		echo  $DUOKAN_TAG > $RUN_TAG
+}
+
+CaseDefault_Old()
+{
+		TD_DebugOn=$(cat /mnt/us/DK_System/config.ini  | awk -F= '/DefaultSystem/{printf $2}')
+		echo $TD_DebugOn
+		if [ "$TD_DebugOn" -eq 1 ]
+		then
+				echo Run DK System
+				SwitchToEbook
+		else
+				echo Run kindle System
+				SwitchToKindle
+		fi 		
+}
+
+CaseDefault()
+{
+		#default system 
+		if [ -f $DUOKAN_SYS_PATH/KindleApp ]
+		then
+				 DUOKAN_DEFAULT_GO=$(cat $DUOKAN_CONFIG_INI  | awk -F= '/DefaultSystem/{printf $2}')
+				 echo $DUOKAN_DEFAULT_GO
+				 if [ "$DUOKAN_DEFAULT_GO" -eq 1 ]
+				 then
+							echo "DuoKan 2012 System"
+							SwitchToDuokan
+				 elif [ "$DUOKAN_DEFAULT_GO" -eq 2 ]
+				 then
+							echo "Run ebook System"
+							SwitchToEbook
+				 elif [ "$DUOKAN_DEFAULT_GO" -eq 3 ]
+				 then
+				 			echo "kindle System"
+				 			SwitchToKindle
+				 else
+				 			echo "DuoKan 2012 System"
+							SwitchToDuokan
+				 fi  
+		elif [ -f $USER_PATH/xKindle/KindleApp ] && [ -d $USER_PATH/xKindle/lib ] && [ -d $USER_PATH/xKindle/res ]
+		then
+				 echo "DuoKan 2012 System update mode"
+				 SwitchToDuokan
+		else
+				 CaseDefault_Old
+		fi
+    display_logo_screen   
+}
+
+#DK Update
+if [ -f /mnt/us/DK_System/bin/DK_update ]
+then
+	chmod +x /mnt/us/DK_System/bin/DK_update
+	/mnt/us/DK_System/bin/DK_update
+	rm /mnt/us/DK_System/bin/DK_update -f
+	sync
+fi
+
+#如果DuoKan 2012文件夹存在就认为有 DuoKan 版本
+show_pic="error"
+if [ -d  $DUOKAN_SYS_PATH ]
+then                    
+   		if [ -f $USER_PATH/bin/ebook ] && [ -f $USER_PATH/bin/dk3system.bin ]
+   		then
+   				 show_pic="ebook_DuoKan_kindle"
+   				 cat $USER_PATH/bin/dk3system.bin > /dev/fb0
+   		elif [ -f $USER_PATH/bin/dk2system.bin ]
+   		then
+   				 show_pic="DuoKan_kindle"
+   				 cat $USER_PATH/bin/dk2system.bin > /dev/fb0
+   		elif [ -f $USER_PATH/bin/dkswitchmenu.bin ]
+   		then
+   				 show_pic="ebook_kindle"
+   				 cat $USER_PATH/bin/dkswitchmenu.bin > /dev/fb0
+   		else
+   				 show_pic="error"
+   		fi
+   		
+else                      
+			if [ -f $USER_PATH/bin/dkswitchmenu.bin ]
+			then
+					show_pic="ebook_kindle"
+   				cat $USER_PATH/bin/dkswitchmenu.bin > /dev/fb0
+   		else
+   				show_pic="error"
+   		fi
+fi 
+echo 2 >/proc/eink_fb/update_display
+
+                                                                                
+if [ $show_pic == "ebook_DuoKan_kindle" ] || [ $show_pic == "DuoKan_kindle" ]
+then                                                                            
+    echo "Run Prog"
+        $USER_PATH/bin/WaiteAKey 15                                                      
+        case $? in                                                              
+        16)
+        		SwitchToDuokan		
+        		ShowSwitchPic
+            ;;
+        112)
+        		SwitchToDuokan		
+        		ShowSwitchPic
+            ;;			
+        2)           
+        		SwitchToDuokan		
+        		ShowSwitchPic
+				    return 0; 
+            ;;
+        30)
+        	 if [ $show_pic == "ebook_DuoKan_kindle" ]
+        	 then
+            	SwitchToEbook
+        			ShowSwitchPic
+        	 else
+        	 		CaseDefault
+        	 fi
+        		;;
+        3)
+            SwitchToEbook
+        		ShowSwitchPic
+        		;;
+        #switch to DuoKan
+        96)
+        		SwitchToKindle
+        		ShowSwitchPic
+        		;;
+        44)
+        		SwitchToKindle
+        		ShowSwitchPic
+        		;;
+       7)
+           	SubLan
+            return 0;
+            ;;
+        57)
+   
+          display_logo_screen  
+          retrun 0;
+          ;; 
+        *) 
+        		CaseDefault 
+	          return 0;                                                                  
+           ;;                                            
+        esac     
+elif [ $show_pic == "ebook_kindle" ]
+then                                             
+        echo "Run Prog"
+        $USER_PATH/bin/WaiteAKey 5                                                          
+        case $? in                                                              
+        16)
+            echo "Run DK program"                                  
+      	    SwitchToEbook
+      	    ShowSwitchPic
+				    return 0; 
+            ;;
+        2)            
+            echo "Run DK program"                                  
+      	    SwitchToEbook
+      	    ShowSwitchPic
+				    return 0; 
+            ;;
+        17)
+            echo "Run Kindle program"                                  
+      	    SwitchToKindle
+      	    ShowSwitchPic
+        		return 0;
+        		;;
+       3)
+            echo "Run Kindle program"                                  
+      	    SwitchToKindle
+      	    ShowSwitchPic
+        		return 0;
+        		;;
+       7)
+            SubLan
+            return 0;
+            ;;
+        57)
+   
+          display_logo_screen  
+          retrun 0;
+          ;; 
+        *) 
+	        	#default system 
+						CaseDefault
+	          retrun 0;                                                                  
+           ;;                                            
+        esac     
+else
+			echo "error"
+		  SwitchToKindle                                                                                                                              
+fi                                                                              
+# Continue Run Script       
+
+

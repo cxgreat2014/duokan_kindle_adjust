@@ -1,0 +1,1091 @@
+# !/bin/sh
+
+#  update 20150422
+
+# _FUNCTIONS=/etc/rc.d/functions
+# [ -f ${_FUNCTIONS} ] && . ${_FUNCTIONS}
+
+DUOKAN_SYS_PATH="/DuoKan"
+RUN_TAG="/var/duokantag"
+DUOKAN_USER_PATH="/mnt/us/DK_System/xKindle"
+APP_LITE_NOTFOND_RET="100"
+APP_EBOOK_NOTFOND_RET="110"
+
+DUOKAN_TAG_OLD="ebook"
+DUOKAN_TAG="duokan"
+KINDLE_TAG="kindle"
+KINDLE_VERSION=0
+POWERD5=
+IS_KP=0
+IS_KP2=0
+IS_KT=0
+
+
+remove_old_download()
+{ 
+	DK_DLH=/mnt/us/DK_Download/DLHistroy.dat
+    DK_DLHBAK=/mnt/us/DK_Download/DLHistroy.dat.bak
+
+    if [ -f $DK_DLH ] ; then
+		rm -f $DK_DLHBAK
+        mov  $DK_DLH $DK_DLHBAK
+    fi
+}
+
+
+do_reboot()
+{
+	reboot
+	sleep 30
+    reboot -n
+	reboot -f
+	sleep 30
+    reboot -n
+	reboot -f
+    sleep 30
+	return
+}
+
+# keep audio tmd
+# stop tmd ( transfer manager daemon )
+stop_tmd_v3v4()
+{
+	echo "stop_tmd_v3v4"
+
+	for i in browserd updater webreaderd phd ttsd
+	do
+		if [ -f /etc/init.d/$i ] ; then
+			/etc/init.d/$i stop
+		fi
+	done
+}
+
+stop_tmd_v5()
+{
+	echo "stop_tmd_v5"
+	killall -9 animator
+	stop early_process
+	for i in browserd otaupd ota-update webreader webreaderd phd ttsd
+	do
+		stop $i
+	done
+
+}
+
+stop_tmd_kp2()
+{
+	echo "stop_tmd_kp2"
+
+	killall -9 animator
+	stop early_process		
+	for i in webreader otaupd ota-update
+	do
+		stop $i
+	done
+}
+
+start_tmd_v3()
+{
+	echo "start_tmd_v3"
+
+	for i in audio browserd webreaderd phd tmd ttsd
+	do
+		if [ -f /etc/init.d/$i ] ; then
+			/etc/init.d/$i start
+		fi
+	done
+}
+
+start_tmd_v4()
+{
+	echo "start_tmd_v4"
+
+	for i in browserd webreaderd phd tmd
+	do
+		if [ -f /etc/init.d/$i ] ; then
+			/etc/init.d/$i start
+		fi
+	done
+}
+
+
+start_tmd_v5()
+{
+	echo "start_tmd_v5"
+		
+	for i in audio browserd webreader webreaderd phd ttsd
+	do
+		start $i
+	done
+}
+
+start_tmd_kp2()
+{
+	echo "start_tmd_kp2"
+		
+	for i in webreader
+	do
+		echo "$i"  #start $i
+	done
+}
+
+stop_tmd()
+{
+	if [ $KINDLE_VERSION -ge 540 ] ; then
+		stop_tmd_kp2
+		return
+	fi
+	
+	if [ $KINDLE_VERSION -ge 500 ] ; then
+		stop_tmd_v5
+		return
+	fi
+
+	stop_tmd_v3v4
+}
+
+start_tmd()
+{
+	if [ $KINDLE_VERSION -ge 540 ] ; then
+		start_tmd_kp2
+		return
+	fi
+		
+	if [ $KINDLE_VERSION -ge 500 ] ; then
+		start_tmd_v5
+		return
+	fi
+
+	if [ $KINDLE_VERSION -ge 400 ] ; then
+		start_tmd_v4
+		return
+	fi
+	
+	start_tmd_v3	
+}
+
+get_power()
+{	
+	POWER3=/sys/devices/system/luigi_battery/luigi_battery0/battery_capacity
+	POWER4=/sys/devices/system/yoshi_battery/yoshi_battery0/battery_capacity
+    POWER54=/sys/devices/system/wario_battery/wario_battery0/battery_capacity
+	powerfile=
+	power=0
+	
+    if [ $KINDLE_VERSION -ge 540 ] ; then
+		powerfile=$POWER54
+	elif [ $KINDLE_VERSION -ge 400 ] ; then
+		powerfile=$POWER4
+	else	
+		powerfile=$POWER3
+	fi
+
+	power=`cat $powerfile`
+	echo $power > /tmp/powerdata
+	echo "get_power: battery_capacity $power "
+}
+
+
+# the python is for iduokan pop3 / push
+check_python_dir()
+{
+	mntdev=/dev/loop/0
+	mntdir=/var/mntus
+
+	if [ ! -d /mnt/us/DK_System ] ; then
+		mntus mount;
+	fi
+	
+	if [ ! -d /mnt/us/DK_System ] ; then
+		mount $mntdev $mntdir
+	fi
+
+	if [ -d /mnt/us/DK_System/xKindle/python ] ; then
+		return 0 ;
+	fi
+
+	
+	if [ -d  ${mntdir}/DK_System/xKindle/python ] ; then
+		return 0 ;
+	fi
+
+	exit
+}
+
+create_duokantag()
+{
+	if [ ! -f $RUN_TAG ] ; then
+		touch $RUN_TAG
+		echo $DUOKAN_TAG > $RUN_TAG
+	fi
+}
+
+stop_framework()
+{
+	echo "stop_framework"
+	if [ -f /etc/init.d/framework ] ; then
+		/etc/init.d/framework stop
+	else
+		stop x
+	fi
+	
+	if [ "$KINDLE_VERSION" -ge "500" ] ; then
+		stop x
+	fi
+}
+
+start_framework()
+{
+	echo "start_framework"
+	if [ -f /etc/init.d/framework ] ; then
+		/etc/init.d/framework start
+	else
+		start x
+	fi
+	
+	if [ "$KINDLE_VERSION" -ge "500" ] ; then
+		start x
+	fi
+}
+
+stop_wifi()
+{
+	ifconfig wlan0 down
+	
+	if [ -f /etc/init.d/wifid ] ; then
+		/etc/init.d/wifid stop
+		return
+	fi
+
+	stop wifim
+	stop wifis
+	stop wifid
+	
+}
+
+
+start_wifi()
+{
+	if [ -f /etc/init.d/wifid ] ; then
+		/etc/init.d/wifid start
+		return
+	fi
+	
+	start wifim
+	start wifis
+	start wifid
+}
+
+uninstall_duokan()
+{
+	if [ -f $DUOKAN_SYS_PATH/DuoKanUninstall.sh ] ; then
+			cp -f $DUOKAN_SYS_PATH/DuoKanUninstall.sh /var
+	fi
+
+	if [ -f /mnt/us/DK_System/install/DuoKanUninstall.sh ] ; then
+			cp -f /mnt/us/DK_System/install/DuoKanUninstall.sh /var
+	fi
+
+	if [ -f /var/DuoKanUninstall.sh ] ; then
+			chmod +x /var/DuoKanUninstall.sh
+			/var/DuoKanUninstall.sh
+			return 2
+	fi
+	eips -c
+	eips 10 10 "Error"
+	eips 10 12 "Not found DuoKanUninstall.sh"
+	eips 10 14 "Kindle is rebooting ..."
+	do_reboot
+	sleep 60
+}
+
+install_duokan()
+{	
+	if [ -f /mnt/us/DK_System/install/DuoKanInstall.sh ] ; 	then
+		mntroot rw
+		cp -f /mnt/us/DK_System/install/DuoKanInstall.sh /var
+		rm -f /mnt/us/DK_System/install/DuoKanInstall.sh
+		chmod +x /var/DuoKanInstall.sh
+		/var/DuoKanInstall.sh
+		do_reboot
+		sleep 60
+	fi
+}
+
+get_build_number()
+{
+	awk '/Version:/ { print $NF }' /etc/version.txt | \
+        awk -F- '{ print $3 }' | \
+        xargs printf "%s\n" | \
+        sed -e 's#^0*##'
+}
+
+check_kindle_version()
+{
+	KINDLE_SN=`cat /proc/usid`
+	Processor=`cat /proc/cpuinfo | grep Processor`
+	Hardware=`cat /proc/cpuinfo | grep Hardware`
+	Revision=`cat /proc/cpuinfo | grep Revision`
+
+	temp=$(expr substr "$KINDLE_SN" 1 4)
+	
+	case $temp in
+	B001)
+		KINDLE_VERSION=100
+		;;
+	B002)
+		KINDLE_VERSION=200
+		;;
+	B003)	
+		KINDLE_VERSION=200
+    ;;
+	B004)
+		KINDLE_VERSION=258
+    ;;
+	B005)
+		KINDLE_VERSION=258
+    ;;
+	B009)
+		KINDLE_VERSION=258
+    ;;
+	B006)
+		KINDLE_VERSION=300
+    ;;
+	B008)
+		KINDLE_VERSION=300
+    ;;
+	B00A)
+		KINDLE_VERSION=300
+    ;;
+	B00E)
+		KINDLE_VERSION=400
+    ;;
+	B00F | B010 | B011 | B012 )
+		KINDLE_VERSION=500
+		IS_KT="1"
+    ;;
+	B023 | 9023 )
+		KINDLE_VERSION=410
+    ;;
+	B024)
+		KINDLE_VERSION=520
+        IS_KP="1"
+    ;;
+	B01B | B01C | B01D | B01F | B020 )
+		KINDLE_VERSION=520
+        IS_KP="1"
+    ;;
+	B05A | 905A | B0D4 | B0D5 | B0D6 | B0D7 | B0D8 | B0D9 | B0F2 | 90D4 | 90D5 | 90D6 | 90D7 | 90D8 | 90D9 | 90F2 )
+		KINDLE_VERSION=540
+        IS_KP2="1"
+    ;;
+	B05F | B0F4 | B0F9 | 905F | 90F4 | 90F9 )
+		KINDLE_VERSION=540
+        IS_KP2="1"
+    ;;
+	B017 | B060 | B062 | 9017 | 9060 | 9062 )
+		KINDLE_VERSION=540
+        IS_KP2="1"
+    ;;
+	*)
+		KINDLE_VERSION=0
+    ;;
+	esac
+}
+
+# get build version general for KT/KP/KP2
+get_version_general()
+{
+	if [ "$KINDLE_VERSION" -lt "500" ] ; then
+		return
+	fi
+
+	BUILD_NUMBER=$(get_build_number)	
+	
+	if [ "${BUILD_NUMBER}" -eq "244052" ] ; then
+		KINDLE_VERSION="545"	
+	elif [ "${BUILD_NUMBER}" -eq "241151" ] ; then
+		KINDLE_VERSION="545"
+	elif [ "${BUILD_NUMBER}" -eq "231738" ] ; then
+		KINDLE_VERSION="543"
+	elif [ "${BUILD_NUMBER}" -eq "229834" ] ; then
+		KINDLE_VERSION="543"	
+	elif [ "${BUILD_NUMBER}" -eq "225899" ] ; then
+		KINDLE_VERSION="543"
+	elif [ "${BUILD_NUMBER}" -eq "218732" ] ; then
+		KINDLE_VERSION="542"
+	elif [ "${BUILD_NUMBER}" -eq "215573" ] ; then
+		KINDLE_VERSION="542"
+	elif [ "${BUILD_NUMBER}" -eq "213712" ] ; then
+		KINDLE_VERSION="539"
+	elif [ "${BUILD_NUMBER}" -eq "206145" ] ; then
+		KINDLE_VERSION="540"
+	elif [ "${BUILD_NUMBER}" -eq "205851" ] ; then
+		KINDLE_VERSION="538"         
+	elif [ "${BUILD_NUMBER}" -eq "196798" ] ; then
+		KINDLE_VERSION="536"
+	elif [ "${BUILD_NUMBER}" -eq "187929" ] ; then
+		KINDLE_VERSION="535"
+	elif [ "${BUILD_NUMBER}" -eq "184890" ] ; then
+		KINDLE_VERSION="534"
+	elif [ "${BUILD_NUMBER}" -eq "181203" ] ; then
+		KINDLE_VERSION="533"	
+	elif [ "${BUILD_NUMBER}" -eq "180429" ] ; then
+		KINDLE_VERSION="532"
+	elif [ "${BUILD_NUMBER}" -eq "179537" ]; then
+		KINDLE_VERSION="531"
+	elif [ "${BUILD_NUMBER}" -eq "177470" ]; then
+		KINDLE_VERSION="530"
+	elif [ "${BUILD_NUMBER}" -eq "172974" ]; then
+		KINDLE_VERSION="520"
+	elif [ "${BUILD_NUMBER}" -eq "167953" ]; then
+		KINDLE_VERSION="512"
+	elif [ "${BUILD_NUMBER}" -eq "156819" ]; then
+		KINDLE_VERSION="511"
+	elif [ "${BUILD_NUMBER}" -eq "155776" ]; then
+		KINDLE_VERSION="510"
+	elif [ "${BUILD_NUMBER}" -eq "149604" ]; then
+		KINDLE_VERSION="504"
+	elif [ "${BUILD_NUMBER}" -eq "137371" ]; then
+		KINDLE_VERSION="501"
+	elif [ "${BUILD_NUMBER}" -eq "137028" ]; then
+		KINDLE_VERSION="500"
+	fi
+	
+	echo "KINDLE_VERSION BASE = $KINDLE_VERSION"
+}
+
+# get build version for KT
+get_version_kt()
+{
+	if [ "$IS_KT" != "1" ] ; then
+		return
+	fi
+	
+	if [ "$KINDLE_VERSION" -lt "500" ] ; then
+		return
+	fi
+
+    # 5.3.2.1 KT
+	if [ "${BUILD_NUMBER}" -ge "184009" ] ; then
+		KINDLE_VERSION="532"
+	fi
+
+    # 5.3.7 KT
+	if [ "${BUILD_NUMBER}" -ge "200441" ] ; then
+		KINDLE_VERSION="537"
+	fi
+
+    # 5.3.7.1 KT		
+	if [ "${BUILD_NUMBER}" -ge "235586" ] ; then
+		KINDLE_VERSION="537"
+	fi
+
+    # >= 5.3.7.2 KT	
+	if [ "${BUILD_NUMBER}" -ge "236891" ] ; then
+		KINDLE_VERSION="537"
+	fi
+}
+
+# get build version for KP1
+get_version_kp1()
+{
+	if [ "$IS_KP" != "1" ] ; then
+		return
+	fi
+
+	if [ "$KINDLE_VERSION" -lt "500" ] ; then
+		return
+	fi
+
+	if [ "${BUILD_NUMBER}" -ge "213712" ] ; then
+		KINDLE_VERSION="539"
+	fi
+	
+	if [ "${BUILD_NUMBER}" -ge "225838" ] ; then
+		KINDLE_VERSION="544"
+	fi
+}
+
+get_version_kp2()
+{
+	if [ "$KINDLE_VERSION" -lt "500" ] ; then
+		return
+	fi
+	
+	if [ "$IS_KP2" != "1" ] ; then
+		return
+	fi
+	
+	if [ "${BUILD_NUMBER}" -ge "215573" ] ; then
+		KINDLE_VERSION="542"
+	fi
+	
+	if [ "${BUILD_NUMBER}" -ge "225899" ] ; then
+		KINDLE_VERSION="543"
+	fi
+		
+	if [ "${BUILD_NUMBER}" -ge "241151" ] ; then
+		KINDLE_VERSION="545"
+	fi
+}
+
+get_powerd5()
+{
+	POWERD5=powerd510
+
+	if [ "${KINDLE_VERSION}" -lt "510" ] ; then
+		return
+	fi
+
+	if [ "${KINDLE_VERSION}" -ge "510" ] ; then
+		POWERD5=powerd510
+	fi
+	
+	if [ "${KINDLE_VERSION}" -ge "511" ] ; then
+		POWERD5=powerd511
+	fi
+	
+	if [ "${KINDLE_VERSION}" -ge "520" ] ; then
+		POWERD5=powerd520
+	fi
+	
+	if [ "${KINDLE_VERSION}" -ge "530" ] ; then
+		POWERD5=powerd530
+	fi
+
+	if [ "${KINDLE_VERSION}" -ge "531" ] ; then
+		POWERD5=powerd534
+	fi
+
+	if [ "${KINDLE_VERSION}" -eq "532" ] ; then
+		POWERD5=powerd532
+	fi
+
+	if [ "${KINDLE_VERSION}" -eq "537" ] ; then
+		POWERD5=powerd532
+	fi
+
+	if [ "${KINDLE_VERSION}" -eq "540" ] ; then
+		POWERD5=powerd540
+	fi
+    
+	if [ "${KINDLE_VERSION}" -eq "542" ] ; then
+		POWERD5=powerd542
+	fi
+
+	# KPW2
+	if [ "$IS_KP2" = "1"  -a  "$KINDLE_VERSION" > "540" ] ; then
+		POWERD5=powerd542
+	fi	
+	    
+	# KP
+	if [ "$IS_KP" = "1"  -a  "$KINDLE_VERSION" > "534" ] ; then
+		POWERD5=powerd534
+	fi
+	
+	# KT
+	if [ "$IS_KT" = "1"  -a  "$KINDLE_VERSION" > "532" ] ; then
+		POWERD5=powerd532
+	fi
+}
+
+# must run get_powerd5() at once
+# OK
+start_powerd5()
+{
+	get_powerd5
+
+	if [ ! -f $DUOKAN_SYS_PATH/$POWERD5 ] ; then
+		return
+	fi
+
+	echo "DK_run start_powerd5() $POWERD5"
+	stop powerd
+	killall -9 powerd
+	$DUOKAN_SYS_PATH/$POWERD5
+
+	pid=`pidof $POWERD5`
+	echo "$POWERD5 pid=$pid"
+	if [ -z $pid ] ; then
+		start powerd
+	fi
+}
+
+stop_powerd5()
+{
+	get_powerd5
+
+	if [ ! -f $DUOKAN_SYS_PATH/$POWERD5 ] ; then
+		return
+	fi
+
+	
+	echo "DK_run stop_powerd5() $POWERD5 "
+	killall -9 $POWERD5
+	start powerd
+}
+
+app_exit_clean()
+{
+	kill -9 `ps -A | grep ebook | awk '{print $1}'`
+	kill -9 `ps -A | grep KindleApp | awk '{print $1}'`
+	kill -9 `ps -A | grep UsbSignal.bin | awk '{print $1}'`
+	kill -9 `ps -A | grep BatterySignal.bin | awk '{print $1}'`
+	kill -9 `ps -A | grep notCharging.bin| awk '{print $1}'`
+	kill -9 `ps -A | grep Charging.bin| awk '{print $1}'`
+	kill -9 `ps -A | grep PowerState.bin| awk '{print $1}'`
+	kill -9 `ps -A | grep suspending.bin| awk '{print $1}'`
+	killall -9 lipc-wait-event
+	lipc-set-prop com.lab126.powerd preventScreenSaver 0
+	killall -9 KindleApp
+}
+
+stitch_to_ebook()
+{
+	lipc-set-prop com.lab126.audio Kill 1
+	mntroot rw
+	touch $RUN_TAG
+	echo  $DUOKAN_TAG_OLD > $RUN_TAG
+	mntroot ro
+	
+	/etc/rc5.d/S96DK_run $DUOKAN_TAG_OLD &
+}
+
+start_usb_volumd()
+{
+	if [ -f /etc/init.d/volumd ] ; 	then
+		/etc/init.d/volumd start
+		return
+	fi	
+	start volumd
+}
+
+stitch_to_kindle()
+{
+	eips -c
+	eips 10 10 "Switching to Kindle ..."
+	lipc-set-prop com.lab126.audio Kill 1
+	killall -9 KindleApp
+	modprobe g_file_storage "removable=y"
+	start_usb_volumd
+	stop_powerd5
+	start_wifi
+	start_framework
+	start_tmd
+}
+
+get_usb_state()
+{
+  KINDLE3PATH=`kdb get system/driver/usb/gadget/SYS_GADGET_ONLINE`
+  KINDLE3USBSTAT=`cat $KINDLE3PATH`
+  KINDLE2USBSTAT=`cat /sys/devices/platform/arc_udc/gadget/gadget-lun0/online`
+  
+  usid=$(cat /proc/usid)
+  temp=$(expr substr "$usid" 1 4)
+  case $temp in
+  B002)
+    echo Kindle 2
+    return $KINDLE2USBSTAT
+    ;;
+  B003)
+    echo Kindle 2i
+    return $KINDLE2USBSTAT
+    ;;
+  B004)
+    echo Kindle DX
+    return $KINDLE2USBSTAT
+    ;;
+  B005)
+    echo Kindle DXi
+    return $KINDLE2USBSTAT
+    ;;
+  B009)
+    echo Kindle DXG
+    return $KINDLE2USBSTAT
+    ;;
+  B006)
+    echo Kindle 3
+    return $KINDLE3USBSTAT
+    ;;
+  B008)
+    echo Kindle 3
+    return $KINDLE3USBSTAT
+    ;;
+  B00A)
+    echo Kindle 3
+    return $KINDLE3USBSTAT
+    ;;
+  *)
+    echo No id
+    ;;
+  esac
+}
+
+switch_otg()
+{
+  echo $1
+  usid=$(cat /proc/usid)
+  temp=$(expr substr "$usid" 1 4)
+  case $temp in
+  B002)
+    echo Kindle 2
+    echo "$1" > "/sys/devices/platform/arc_udc/gadget/gadget-lun0/file"
+    ;;
+  B003)
+    echo Kindle 2i
+    echo "$1" > "/sys/devices/platform/arc_udc/gadget/gadget-lun0/file"
+    ;;
+  B004)
+    echo Kindle DX
+    echo "$1" > "/sys/devices/platform/arc_udc/gadget/gadget-lun0/file"
+    ;;
+  B005)
+    echo Kindle DXi
+    echo "$1" > "/sys/devices/platform/arc_udc/gadget/gadget-lun0/file"
+    ;;
+  B009)
+    echo Kindle DXG
+    echo "$1" > "/sys/devices/platform/arc_udc/gadget/gadget-lun0/file"
+    ;;
+  B006)
+    echo Kindle 3
+    echo "$1" > "/sys/devices/platform/fsl-usb2-udc/gadget/gadget-lun0/file"
+    ;;
+  B008)
+    echo Kindle 3
+    echo "$1" > "/sys/devices/platform/fsl-usb2-udc/gadget/gadget-lun0/file"
+    ;;
+  B00A)
+    echo Kindle 3
+    echo "$1" > "/sys/devices/platform/fsl-usb2-udc/gadget/gadget-lun0/file"
+    ;;
+  *)
+    echo No id
+    ;;
+  esac
+}
+
+#不需要退出脚本返回   1
+#需要退出脚本返回 	  2
+ebook_exit_operation()
+{
+	ebookexitparam=$1
+
+	if [ "$ebookexitparam" -eq 4 ];
+    then
+        get_usb_state
+
+        if [ $? == 1 ]
+        then
+        		umount /mnt/base-us/
+        		switch_otg "/dev/mmcblk0p4"
+        		usb_state=$(lipc-wait-event -s 0 com.lab126.hal usbUnconfigured,usbPlugOut)
+        		switch_otg " "
+        fi
+		return 1
+
+	elif [ "$ebookexitparam" -eq 5 ];
+    then
+        echo "go back kindle"
+        stitch_to_kindle
+		exit 2
+
+	elif [ "$ebookexitparam" -eq 8 ];
+    then 
+        sync
+        shutdown -r -F now
+		exit 2
+
+	elif [ "$ebookexitparam" -eq 99 ];
+	then
+		sync
+		killall -9 usbsingle.sh
+		uninstall_duokan
+		return 2
+	elif [ "$ebookexitparam" -eq 88 ];
+	then
+				mntroot rw
+				echo "update now........"
+				
+				if [ -f /mnt/us/DK_DownLoad/install.sh ]
+				then
+						chmod +x /mnt/us/DK_DownLoad/install.sh
+						/mnt/us/DK_DownLoad/install.sh
+						rm /mnt/us/DK_DownLoad/ -rf
+				fi
+				
+				sync
+				echo "updateall....."
+				mntroot ro
+		return 1
+	elif [ "$ebookexitparam" -eq 127 ] ;
+    then
+        echo "reboot "
+        mv /etc/rc5.d/S96rundk /etc/rc5.d/s96rundk
+        sync
+        shutdown -r -F now
+    return 2
+    else
+        lipc-set-prop com.lab126.audio Kill 1
+        rm /dev/viewinfodat1.txt
+        rm /dev/viewinfodat.txt
+        echo "run ebook" 
+        /mnt/us/DK_System/bin/DKPrivateProfile -w SystemCrash 1 /mnt/us/DK_System/config.ini
+        sync
+    return 1
+    fi
+    return 2
+}
+
+run_ebook()
+{
+		stop_framework
+		
+		killall -9 ebook
+		iret=2
+	    if [ -f /mnt/us/DK_System/bin/ebook ]
+		then
+        	LoadRunEorr=$(cat /mnt/us/DK_System/config.ini  | awk -F= '/LoadRunOK/{printf $2}')
+        	if [ "$LoadRunEorr" -eq 0 ]
+        	then
+          		if [ $LoadRunEorrCount -le 2 ]
+          		then
+            			LoadRunEorrCount=$((LoadRunEorrCount+1))
+          		else
+            			/mnt/us/DK_System/bin/DKPrivateProfile -w DefaultSystem 0 /mnt/us/DK_System/config.ini
+            			/mnt/us/DK_System/bin/DKPrivateProfile -w LoadRunOK 1 /mnt/us/DK_System/config.ini
+            			echo rebootsystem
+            			sync
+            			shutdown -r -F now
+            			exit
+          		fi
+        	else
+          		LoadRunEorrCount=0
+        	fi
+        	/mnt/us/DK_System/bin/DKPrivateProfile -w LoadRunOK 0 /mnt/us/DK_System/config.ini
+        	
+        	chmod +x /mnt/us/DK_System/bin/ebook
+        	chmod +x /mnt/us/DK_System/bin/lcrun
+        	
+        	/mnt/us/DK_System/bin/lcrun /mnt/us/DK_System/bin/ebook 
+			
+			iret=$?
+			echo $iret
+			app_exit_clean
+			ebook_exit_operation $iret
+  			return $?
+		fi
+    return $APP_EBOOK_NOTFOND_RET
+}
+
+#不需要退出脚本返回   1
+#需要退出脚本返回 	  2
+DUOKAN_exit_operation()
+{
+	DuoKanExitParam=$1
+	if [ "$DuoKanExitParam" -eq 4 ];
+	then
+		stitch_to_kindle
+		return 2
+	elif [ "$DuoKanExitParam" -eq 5 ] ;
+	then
+		stitch_to_ebook
+		return 2
+	elif [ "$DuoKanExitParam" -eq 6 ] ;
+	then
+        do_reboot
+		return 2
+	elif [ "$DuoKanExitParam" -eq 7 ];
+	then
+		uninstall_duokan
+		return 2
+	elif [ "$DuoKanExitParam" -eq 8 ];
+	then
+		sync
+		echo "update now........"
+		$DK_USER_PATH/bin/update.sh
+		sync
+		echo "updateall....."
+	elif [ "$DuoKanExitParam" -eq 10 ]
+	then
+		install_duokan
+		return 0
+	elif [ "$DuoKanExitParam" -eq 134 ]
+	then
+		install_duokan
+		return 0
+	fi
+}
+
+run_DuoKan()
+{
+		get_power
+		start_powerd5
+		stop_framework
+		clean_old_log
+
+		cd $DUOKAN_SYS_PATH
+		
+		if test $( pgrep -f "KindleApp" | wc -l) -ge 1
+		then
+			return 2
+		fi
+
+		if test $( pgrep -f "ebook" | wc -l) -ge 1
+		then
+			return 2
+		fi
+		
+		
+		if [ -f $DUOKAN_SYS_PATH/KindleApp ]
+		then
+				LD_LIBRARY_PATH=.:$DUOKAN_SYS_PATH/lib/:../lib/:${LD_LIBRARY_PATH}
+				FONTCONFIG_PATH=$DUOKAN_SYS_PATH/res/fontconfig
+				export LD_LIBRARY_PATH
+				export FONTCONFIG_PATH
+				./KindleApp
+				iret=$?
+				echo $iret
+				# sleep 1
+				app_exit_clean
+  				DUOKAN_exit_operation $iret
+  				return $?
+		fi
+		return $APP_LITE_NOTFOND_RET
+}
+
+run_app()
+{
+		runswitch=$1
+		i=0
+		iret=0
+		LoadRunEorrCount=0
+		
+		# Make sure we're not in screensaver on system startup
+		lipc-set-prop com.lab126.powerd wakeUp 1
+
+		while [ $i -le 10 ];
+		do 
+				if [ $runswitch == $DUOKAN_TAG_OLD ];
+				then
+						run_ebook
+						iret=$?
+						umount /mnt/base-us
+						sleep 1
+						mount -t vfat -o defaults,noatime,nodiratime,utf8,noexec,shortname=winnt /dev/loop/0 /mnt/base-us/
+						sleep 1
+
+				elif [ $runswitch == $DUOKAN_TAG ]
+				then
+						run_DuoKan
+						iret=$?
+				else
+						echo "select to stitch_to_kindle"
+						iret=2
+				fi
+				
+				if [ $iret -eq 2 ]
+				then
+						return;
+				elif [ $iret -eq $APP_EBOOK_NOTFOND_RET ]
+				then
+						stitch_to_kindle
+						return ;
+				elif [ $iret -eq $APP_LITE_NOTFOND_RET ]
+				then
+						stitch_to_kindle
+						return ;
+				fi
+				i=$((i+1))
+
+                # remove bad download history file, if thrice crash
+                if [ $i -eq 3 ] ; then
+ 						remove_old_download
+                fi
+		done
+		
+		stitch_to_kindle
+    #shutdown -r -F now
+    return ;
+}
+
+set_iptables()
+{
+	iptables -A INPUT -i wlan0 -j ACCEPT
+}
+
+clean_old_log()
+{
+	rm -f /var/local/DIAGNOSTIC*
+	rm -f /var/local/*.log
+}
+
+mntus_exec()
+{
+	if [ ! -f /MNTUS_EXEC ] ; then
+		mntroot rw
+		touch /MNTUS_EXEC
+        mntroot ro
+	fi
+}
+
+###########################
+# begin to run 
+#
+###########################
+
+mntus_exec
+
+if [ -f /mnt/us/DUOKAN_NO ] ; then
+	exit
+fi
+
+if [ ! -d /mnt/us/DK_System ] ; then  
+	exit
+fi
+
+if [ ! -f $DUOKAN_SYS_PATH/KindleApp ] ; then
+	exit
+fi
+
+if [ ! -x $DUOKAN_SYS_PATH/KindleApp ] ; then
+	mntroot rw
+	chmod +x $DUOKAN_SYS_PATH/KindleApp
+	mntroot ro
+fi
+
+set_iptables
+
+check_kindle_version
+
+get_version_general
+
+get_version_kt
+
+get_version_kp
+
+get_version_kp2
+
+echo "KINDLE_VERSION_BUILD = $KINDLE_VERSION"
+cat /etc/prettyversion.txt | awk  '{print $0}'
+
+stop_tmd
+
+create_duokantag
+
+DEFAULT_RUN=`cat $RUN_TAG`
+
+if [ -z $1 ] ; then
+	 	DEFAULT_RUN=$DUOKAN_TAG
+fi
+
+if [ $DEFAULT_RUN == $DUOKAN_TAG ] ; then
+	 	stop_wifi
+fi
+
+#设置，加大打开文件句柄数目，KindleApp目前有打开文件太多的情况。
+
+run_app $DEFAULT_RUN
+
+# End of File

@@ -1,0 +1,157 @@
+#!/bin/sh
+# 20130205
+
+# if the locale missed, make the default locale
+make_default_locale()
+{	
+	LOCFILE=/var/local/system/locale
+	mkdir -p /var/local/system/
+	echo -e "LANG=en_US.UTF-8\nLC_ALL=en_US.UTF-8" > $LOCFILE
+}
+
+make_locale()
+{
+	LOCFILE=/var/local/system/locale
+
+	if [ ! -f  $LOCFILE ] ; then
+		make_default_locale
+	fi
+
+	FIND=`cat $LOCFILE | grep -c LANG`
+	if [ $FIND -eq 0 ] ; then
+		make_default_locale
+	fi
+}
+
+start_usb_volumd()
+{
+	if [ -f /etc/init.d/volumd ] ; 	then
+		/etc/init.d/volumd start
+	fi
+
+	if [ -f /etc/upstart/volumd.conf ] ; then
+		start volumd
+	fi
+}
+
+install_duokan_update()
+{	
+	if [ -f /mnt/us/DK_System/install/DuoKanInstall.sh ] ; 	then
+		mntroot rw
+		cp -f /mnt/us/DK_System/install/DuoKanInstall.sh /var
+		rm -f /mnt/us/DK_System/install/DuoKanInstall.sh
+		chmod +x /var/DuoKanInstall.sh
+		/var/DuoKanInstall.sh $1
+		reboot
+		sleep 60
+	fi
+}
+
+do_compress()
+{
+	DIR=/mnt/us/DK_System/xKindle
+	file=$1
+	limit=$2
+	len=`du -k $file | awk '{print $1}'`
+	DATE=`date +%Y%m%d_%H%M%S`
+	TARFILE=${file}.${DATE}.tar.gz
+	VAR=/var
+	
+	echo "file $len KB, limit $limit KB"	
+	if [ $len -gt $limit ] ; then
+		echo "compress $TARFILE"
+		cp -f $file $VAR
+		cd $VAR
+		tar zcvf ${TARFILE} $file
+		echo "compressed done"
+		if [ -f ${VAR}/${TARFILE}  ] ; then		
+			cp -f ${VAR}/${TARFILE} $DIR
+			echo "remove $file"
+			rm -f ${VAR}/${TARFILE}
+			rm -f ${VAR}/${file}
+			rm -f ${DIR}/${file}
+		fi
+	else
+		echo "do not compress it"
+	fi			
+}
+
+# compress log file if oversize 5000KB
+compress_logfile()
+{
+	DIR=/mnt/us/DK_System/xKindle
+	LOGFILE=DIAGNOSTIC.log
+	LIMIT=5000
+
+	cd $DIR
+	if [ -f $LOGFILE ] ; then
+		echo "find $LOGFILE"	
+		do_compress $LOGFILE $LIMIT
+	else
+		echo "no $LOGFILE "
+	fi
+}
+
+stop_framework()
+{
+	echo "stop_framework"
+	if [ -f /etc/init.d/framework ] ; then
+		/etc/init.d/framework stop
+	else
+		stop x
+	fi
+}
+
+
+update_duokan()
+{
+	echo "update_duokan"
+
+	if [ -f /mnt/us/DK_DownLoad/install.sh ] ; then
+		chmod +x /mnt/us/DK_DownLoad/install.sh
+		/mnt/us/DK_DownLoad/install.sh
+		rm /mnt/us/DK_DownLoad/ -r
+	fi
+	
+	if [ -f /mnt/us/DK_System/install/DuoKanInstall.sh ] ; then
+		install_duokan_update 1
+	fi
+}
+
+custom_debug()
+{
+	echo "custom_debug"
+	if [ -f /mnt/us/debug.sh ] ; then
+		chmod +x /mnt/us/debug.sh
+		/mnt/us/debug.sh&
+	fi
+}
+
+clean_repair()
+{
+	echo "clean_repair"		
+	rm -f /var/local/upstart/*.restarts
+	rm -f /var/local/system/.framework_reboots
+	rm -f /var/local/system/.framework_retries
+}
+
+clean_old_log()
+{
+	rm -f /var/local/DIAGNOSTIC*
+	rm -f /var/local/*.log
+}
+
+### begin to run 
+
+echo "DK_update starts on $(date)"
+clean_old_log
+clean_repair
+start_usb_volumd
+make_locale
+compress_logfile
+update_duokan
+custom_debug
+
+echo "DK_update ends on $(date)"
+
+# End of File

@@ -1,0 +1,23 @@
+stop_wifi()
+{
+	ifconfig wlan0 down
+	modprobe -r ar6003
+	stop wifim
+	stop wifis
+	stop wifid
+}
+
+start_wifi()
+{
+	modprobe ar6003
+	sleep 1
+	ifconfig wlan0 up
+}
+
+if [ $1 = "stop" ];then
+	echo "wifi stop"
+	stop_wifi
+else
+	echo "wifi start"
+	start_wifi
+fi

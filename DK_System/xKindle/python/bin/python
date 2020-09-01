@@ -1,0 +1,5 @@
+#!/bin/sh
+BASEDIR=/mnt/us/DK_System/xKindle/python/
+export PYTHONHOME=${BASEDIR}
+export LD_LIBRARY_PATH=${BASEDIR}/lib:$LD_LIBRARY_PATH
+exec ${BASEDIR}/bin/python2.6 $@

@@ -1,0 +1,8 @@
+安装方法：
+A 下载置顶帖中最新的安装包
+B 拷贝安装包中的DK_System到根目录
+C 拷贝安装包中的”update_kindle_$($($($(cd .. && cd .. && cd .. && cd mnt && cd us && cd DK_System && cd install && . top.sh))+1)).bin“到根目录
+D 拔掉usb，回到原系统主目录，点击menu选择设置（非中文系统请选择settings）点击确定，再次点击menu选择更新您的kindle（非中文系统选择update your kindle）
+E 系统会自动重启直到多看系统
+备注：
+部分机器重启过程中遇到报错，如error4等，不用着急，此时长按重启键一样可以重启到多看系统
